@@ -1,0 +1,123 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: CloudFormation Template to create an EC2 instance
+
+Parameters:
+  LambdaRole:
+    Description: domain name to create in the RecordSet
+    Type: "String"
+  s3BucketName:
+    Description: S3 bucket name
+    Type: "String"
+  S3FileName:
+    Description: volume size to create in the RecordSet
+    Type: "String"
+  LambdaFunctionName:
+    Description: volume type to create in the RecordSet
+    Type: "String"
+  SNSTopicName:
+    Description: Security Group name
+    Type: "String"
+  SNSDisplayName:
+    Description: Security Group name
+    Type: "String"
+  DynamodbTableName:
+    Description: Name of the Dynamodb
+    Type: "String"
+  ReadCU:
+    Description: Read capacity units for Dynamodb
+    Type: "String"
+  WriteCU:
+    Description: Write capacity units for Dynamodb
+    Type: "String"
+  ColumnName:
+    Description: PrimaryKey Name for DB
+    Type: String
+    AllowedPattern: '[a-zA-Z0-9]*'
+    MinLength: '1'
+    MaxLength: '2048'
+    ConstraintDescription: "only alphanumberic characters"
+  IdDataType:
+    Description: Id PrimaryKey Data Type
+    Type: String
+    Default: S
+    AllowedPattern: '[S|N]'
+    MinLength: '1'
+    MaxLength: '1'
+    ConstraintDescription: "must be either S or N"
+
+
+
+Resources:
+  LambdaExecutionRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        - "arn:aws:iam::aws:policy/AmazonSESFullAccess"
+        - "arn:aws:iam::aws:policy/AWSLambdaFullAccess"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          -
+            Effect: Allow
+            Principal:
+              Service:
+                - "lambda.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Path: "/"
+      RoleName: !Ref LambdaRole
+
+  LambdaFunction:
+    Type: "AWS::Lambda::Function"
+    Properties: 
+      Code:
+        S3Bucket: !Ref s3BucketName
+        S3Key: !Ref S3FileName
+      Environment:
+        Variables:
+          TableName: "LambdaDb"
+          DomainUser: "chilkepallia"
+      Timeout: "25"
+      Description: lambda function to be triggered when an sns topic is created
+      FunctionName: !Ref LambdaFunctionName
+      Handler: "index.handler"
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Runtime: "nodejs6.10"
+
+  SNSService:
+    Type: "AWS::SNS::Topic"
+    Properties:
+      DisplayName: !Ref SNSDisplayName
+      Subscription:
+        -
+          Endpoint: !GetAtt LambdaFunction.Arn
+          Protocol: "lambda"
+      TopicName: !Ref SNSTopicName
+
+  LambdaInvokePermission:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      FunctionName: !GetAtt LambdaFunction.Arn
+      Action: 'lambda:*'
+      Principal: "sns.amazonaws.com"
+      SourceArn: !Ref SNSService
+
+  DynamoDBTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+        -
+          AttributeName: Email
+          AttributeType: S
+      KeySchema:
+        -
+          AttributeName: Email
+          KeyType: HASH
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+      TimeToLiveSpecification:
+          AttributeName: TTL
+          Enabled: true
+      TableName: !Ref DynamodbTableName
